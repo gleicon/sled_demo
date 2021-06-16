@@ -2,8 +2,12 @@ use sled::{Config, Result};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::fs;
-//use std::result::Result;
+use serde::{Serialize, Deserialize};
 
+#[derive(Serialize, Deserialize, PartialEq, Debug)]
+struct Envelope {
+    body: Vec<u8>,
+}
 
 struct PersistenceManager <'a> {
     root_path: String,
@@ -13,7 +17,7 @@ struct PersistenceManager <'a> {
 
 impl<'a> PersistenceManager<'a> {
 
-    pub fn push_item(&mut self, queue_name: String, body: String) -> Result<Box<Vec<u8>>> {
+    pub fn push_item(&mut self, queue_name: String, body: Vec<u8>) -> Result<Box<Vec<u8>>> {
         let mut db = self.databases.get(&queue_name.clone());
         match db.clone() {
             Some(_) => (),
@@ -25,10 +29,13 @@ impl<'a> PersistenceManager<'a> {
         let db = db.unwrap();
 
         let key = format!("{}:{}", queue_name, db.generate_id().unwrap());
-        let res = db.insert(key, body.as_bytes());
+        let bbody = Envelope {body: body.clone()};
+        let encoded: Vec<u8> = bincode::serialize(&bbody).unwrap();
+
+        let res = db.insert(key, encoded);
         let res = res.unwrap();
         match res {
-            Some(b) => Ok(Box::new(b.to_vec())),
+            Some(b) => Ok(Box::new(bincode::deserialize(&b.to_vec()).unwrap())), 
             None => Ok(Box::new([].to_vec())),
         }
     }
@@ -36,7 +43,8 @@ impl<'a> PersistenceManager<'a> {
     pub fn pop_item(&mut self, queue_name: String) -> Result<Box<Vec<u8>>> {
         let db = self.databases.get(&queue_name).unwrap();
         let (_,  value) = db.first().unwrap().unwrap();
-        Ok(Box::new(value.as_ref().to_vec()))
+        let bres = bincode::deserialize(value.as_ref()).unwrap();
+        Ok(Box::new(bres))
     }
 
     pub fn load_or_create_database(&mut self, queue_name: String) -> Result<()> {
@@ -87,6 +95,6 @@ impl<'a> PersistenceManager<'a> {
 fn main() {
     let path = "lero".to_string();
     let mut pm = PersistenceManager::new(&path);
-    let _ = pm.push_item("test".to_string(), "nheco".to_string());
+    let _ = pm.push_item("test".to_string(), "nheco".to_string().into_bytes());
     print!("{}", format!("{:?}", pm.pop_item("test".to_string())));
 }
